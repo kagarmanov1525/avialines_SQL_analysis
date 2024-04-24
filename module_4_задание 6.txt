@@ -1,0 +1,81 @@
+WITH a AS
+  (SELECT fl.flight_id,
+          fl.flight_no,
+          fl.aircraft_code,
+          apd.city city_dep,
+          apr.city city_arr,
+          date_trunc('month', fl.actual_arrival) month_arrival,
+          count(DISTINCT tf.ticket_no) ticket_count,
+          round(sum(tf.amount)/1000) revenue,
+          round (date_part('hour', fl.scheduled_arrival - fl.scheduled_departure) * 60 + date_part('minute', fl.scheduled_arrival - fl.scheduled_departure)) flight_time
+   FROM dst_project.flights fl
+   LEFT JOIN dst_project.ticket_flights tf ON fl.flight_id = tf.flight_id
+   LEFT JOIN dst_project.airports apr ON apr.airport_code = fl.arrival_airport
+   LEFT JOIN dst_project.airports apd ON apd.airport_code = fl.departure_airport
+   WHERE departure_airport = 'AAQ'
+     AND (date_trunc('month', fl.scheduled_departure) in ('2016-12-01',
+                                                          '2017-01-01',
+                                                          '2017-02-01',
+                                                          '2017-12-01'))
+     AND status not in ('Cancelled')
+   GROUP BY fl.flight_id,
+            fl.flight_no,
+            fl.aircraft_code,
+            fl.arrival_airport,
+            city_dep,
+            city_arr,
+            month_arrival),
+     b AS
+  (SELECT fl.flight_id,
+          fl.flight_no,
+          round((date_part('hour', fl.scheduled_arrival - fl.scheduled_departure) * 60 + date_part('minute', fl.scheduled_arrival - fl.scheduled_departure))/60 *1.7 * 50 + 50) AS flight_cost,
+          COUNT (DISTINCT seat_no) total_seats
+   FROM dst_project.flights fl
+   LEFT JOIN dst_project.seats st ON fl.aircraft_code = st.aircraft_code
+   WHERE fl.aircraft_code = 'SU9'
+   GROUP BY fl.flight_id,
+            fl.flight_no,
+            flight_cost
+   UNION SELECT fl.flight_id,
+                fl.flight_no,
+                round((date_part('hour', fl.scheduled_arrival - fl.scheduled_departure) * 60 + date_part('minute', fl.scheduled_arrival - fl.scheduled_departure))/60 *2.4 * 50 + 50) AS flight_cost,
+                COUNT (DISTINCT seat_no) total_seats
+   FROM dst_project.flights fl
+   LEFT JOIN dst_project.seats st ON fl.aircraft_code = st.aircraft_code
+   WHERE fl.aircraft_code = '733'
+   GROUP BY fl.flight_id,
+            flight_no,
+            flight_cost)
+SELECT a.flight_id,
+       a.flight_no,
+       a.city_dep,
+       a.city_arr,
+       a.month_arrival,
+       a.aircraft_code,
+       a.flight_time,
+       b.flight_cost,
+       a.ticket_count,
+       b.total_seats,
+       a.ticket_count*100/b.total_seats occ_perc,
+       a.revenue rev,
+       a.revenue - b.flight_cost profit
+FROM b
+JOIN a ON a.flight_no = b.flight_no
+WHERE a.revenue IS NOT NULL
+UNION
+SELECT a.flight_id,
+       a.flight_no,
+       a.city_dep,
+       a.city_arr,
+       a.month_arrival,
+       a.aircraft_code,
+       a.flight_time,
+       b.flight_cost,
+       a.ticket_count,
+       b.total_seats,
+       a.ticket_count*100/b.total_seats occ_perc,
+       '0' rev, - b.flight_cost profit
+FROM b
+JOIN a ON a.flight_id = b.flight_id
+WHERE a.revenue IS NULL
+ORDER BY profit DESC
